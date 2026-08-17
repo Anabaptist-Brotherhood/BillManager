@@ -1,0 +1,40 @@
+{
+  "name": "billmanager-file-manager",
+  "version": "0.13.0",
+  "description": "BillManager - a desktop file manager with preview, tagging, and notes",
+  "main": "main.js",
+  "author": "",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win"
+  },
+  "devDependencies": {
+    "electron": "^43.2.0",
+    "electron-builder": "^26.15.3"
+  },
+  "build": {
+    "appId": "com.billmanager.filemanager",
+    "productName": "BillManager",
+    "files": [
+      "main.js",
+      "preload.js",
+      "renderer/**/*"
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "build/icon.ico"
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    }
+  },
+  "allowScripts": {
+    "electron@31.7.7": true,
+    "electron-winstaller@5.4.0": true
+  },
+  "dependencies": {
+    "exiftool-vendored": "^37.1.0"
+  }
+}
