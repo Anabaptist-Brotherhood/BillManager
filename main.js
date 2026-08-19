@@ -60,8 +60,8 @@ app.on("will-quit", () => {
 //     PNG "Comment" text chunk) for comments.
 function toStringArray(value) {
   if (value == null) return [];
-  if (Array.isArray(value)) return value.map((v) => String(v));
-  return [String(value)];
+  const arr = Array.isArray(value) ? value.map((v) => String(v)) : [String(value)];
+  return arr.map((v) => v.trim()).filter(Boolean);
 }
 
 // None of these underlying fields natively support multiple values, so a file's
