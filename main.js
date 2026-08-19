@@ -5,6 +5,7 @@ const crypto = require("crypto");
 const { pathToFileURL } = require("url");
 const { execFileSync } = require("child_process");
 const { exiftool } = require("exiftool-vendored");
+const { autoUpdater } = require("electron-updater");
 
 const ACCEPTED_EXT = [".pdf", ".jpg", ".jpeg", ".png"];
 
@@ -53,6 +54,60 @@ app.on("window-all-closed", () => {
 app.on("will-quit", () => {
   exiftool.end();
 });
+
+// --- Auto-update -----------------------------------------------------------
+// Driven entirely from the renderer's "Check for Updates" button — we never
+// check or download silently in the background, so nothing happens on the
+// user's bandwidth/disk without them asking for it first.
+autoUpdater.autoDownload = false;
+autoUpdater.autoInstallOnAppQuit = false;
+
+function sendUpdateStatus(status) {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send("update-status", status);
+  }
+}
+
+autoUpdater.on("checking-for-update", () => {
+  sendUpdateStatus({ state: "checking" });
+});
+autoUpdater.on("update-available", (info) => {
+  sendUpdateStatus({ state: "available", version: info.version });
+});
+autoUpdater.on("update-not-available", () => {
+  sendUpdateStatus({ state: "not-available" });
+});
+autoUpdater.on("download-progress", (progress) => {
+  sendUpdateStatus({ state: "downloading", percent: Math.round(progress.percent) });
+});
+autoUpdater.on("update-downloaded", (info) => {
+  sendUpdateStatus({ state: "downloaded", version: info.version });
+});
+autoUpdater.on("error", (err) => {
+  sendUpdateStatus({ state: "error", message: err?.message || String(err) });
+});
+
+ipcMain.handle("check-for-updates", async () => {
+  try {
+    await autoUpdater.checkForUpdates();
+  } catch (err) {
+    sendUpdateStatus({ state: "error", message: err?.message || String(err) });
+  }
+});
+
+ipcMain.handle("download-update", async () => {
+  try {
+    await autoUpdater.downloadUpdate();
+  } catch (err) {
+    sendUpdateStatus({ state: "error", message: err?.message || String(err) });
+  }
+});
+
+ipcMain.handle("quit-and-install", () => {
+  autoUpdater.quitAndInstall();
+});
+
+ipcMain.handle("get-app-version", () => app.getVersion());
 
 // Tags and comments are stored as native file metadata (no sidecar file):
 //   - PDFs: the document's own Info dictionary (Keywords / Subject).

@@ -17,4 +17,13 @@ contextBridge.exposeInMainWorld("api", {
   saveTagConfig: (folder, tags) => ipcRenderer.invoke("save-tag-config", folder, tags),
   getLastFolder: () => ipcRenderer.invoke("get-last-folder"),
   setLastFolder: (folder) => ipcRenderer.invoke("set-last-folder", folder),
+  getAppVersion: () => ipcRenderer.invoke("get-app-version"),
+  checkForUpdates: () => ipcRenderer.invoke("check-for-updates"),
+  downloadUpdate: () => ipcRenderer.invoke("download-update"),
+  quitAndInstall: () => ipcRenderer.invoke("quit-and-install"),
+  onUpdateStatus: (callback) => {
+    const listener = (event, status) => callback(status);
+    ipcRenderer.on("update-status", listener);
+    return () => ipcRenderer.removeListener("update-status", listener);
+  },
 });

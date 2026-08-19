@@ -12,6 +12,8 @@ const ICONS = {
   emptyFolder: `<svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="#77705f" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z"/></svg>`,
   refresh: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12a9 9 0 0 1 15.3-6.4L21 8"/><polyline points="21 3 21 8 16 8"/><path d="M21 12a9 9 0 0 1-15.3 6.4L3 16"/><polyline points="3 21 3 16 8 16"/></svg>`,
   undo: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>`,
+  download: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>`,
+  check: `<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`,
 };
 
 const state = {
@@ -30,6 +32,8 @@ const state = {
   tagModalDraft: null, // working copy of predefinedTags while the manage-tags modal is open
   recordingShortcutIdx: null, // index into tagModalDraft currently listening for a keypress
   refreshing: false, // true while re-scanning the folder for changes made outside the app
+  appVersion: "",
+  updateStatus: { state: "idle" }, // mirrors the main process's autoUpdater: idle | checking | available | not-available | downloading | downloaded | error
 };
 
 const TAG_COLOR_PALETTE = ["#2e6b5c", "#b9812c", "#9c4a3d", "#4a6fa5", "#7a5980", "#5c7a3d", "#a55a4a", "#3d6b7a"];
@@ -676,6 +680,70 @@ function render() {
   if (state.tagModalOpen) app.appendChild(renderTagManager());
 }
 
+// ---- Updates ----
+// The main process owns autoUpdater and only reports status back over
+// "update-status" — nothing here talks to GitHub directly. Each handler just
+// mirrors that status into state and re-renders the sidebar footer.
+function setUpdateStatus(status) {
+  state.updateStatus = status;
+  render();
+}
+
+async function checkForUpdates() {
+  setUpdateStatus({ state: "checking" });
+  await window.api.checkForUpdates();
+}
+
+async function downloadUpdate() {
+  setUpdateStatus({ ...state.updateStatus, state: "downloading", percent: 0 });
+  await window.api.downloadUpdate();
+}
+
+function restartToInstall() {
+  window.api.quitAndInstall();
+}
+
+function renderUpdateFooter() {
+  const s = state.updateStatus;
+  let body;
+  if (s.state === "checking") {
+    body = `<span class="fm-update-text">${ICONS.refresh} Checking for updates…</span>`;
+  } else if (s.state === "available") {
+    body = `<button class="fm-update-action" id="update-download">${ICONS.download} Download update ${s.version}</button>`;
+  } else if (s.state === "downloading") {
+    body = `<span class="fm-update-text">${ICONS.download} Downloading… ${s.percent ?? 0}%</span>`;
+  } else if (s.state === "downloaded") {
+    body = `<button class="fm-update-action" id="update-restart">${ICONS.check} Restart to install ${s.version}</button>`;
+  } else if (s.state === "not-available") {
+    body = `<span class="fm-update-text">${ICONS.check} Up to date</span>`;
+  } else if (s.state === "error") {
+    body = `<span class="fm-update-text fm-update-error" title="${(s.message || "").replace(/"/g, "&quot;")}">Update check failed</span>`;
+  } else {
+    body = `<button class="fm-update-action" id="update-check">${ICONS.refresh} Check for updates</button>`;
+  }
+
+  const footer = el(`
+    <div class="fm-update-footer">
+      <span class="fm-update-version">v${state.appVersion}</span>
+      ${body}
+    </div>
+  `);
+
+  const checkBtn = footer.querySelector("#update-check");
+  if (checkBtn) checkBtn.addEventListener("click", checkForUpdates);
+  const downloadBtn = footer.querySelector("#update-download");
+  if (downloadBtn) downloadBtn.addEventListener("click", downloadUpdate);
+  const restartBtn = footer.querySelector("#update-restart");
+  if (restartBtn) restartBtn.addEventListener("click", restartToInstall);
+  // "Up to date"/"failed" are transient — clicking them re-checks like the idle button does.
+  if (s.state === "not-available" || s.state === "error") {
+    footer.querySelector(".fm-update-text").addEventListener("click", checkForUpdates);
+    footer.classList.add("fm-update-clickable");
+  }
+
+  return footer;
+}
+
 function renderSidebar() {
   const tags = getAllTags();
   const folderTree = state.folder ? buildFolderTree(state.files) : null;
@@ -769,6 +837,8 @@ function renderSidebar() {
       render();
     });
   });
+
+  sidebar.appendChild(renderUpdateFooter());
 
   return sidebar;
 }
@@ -1202,6 +1272,9 @@ function renderTagManager() {
 // back to the normal empty state if there's no remembered folder, or listing it
 // fails (e.g. it was deleted or a removable drive is unplugged).
 (async function init() {
+  state.appVersion = await window.api.getAppVersion();
+  window.api.onUpdateStatus((status) => setUpdateStatus(status));
+
   const lastFolder = await window.api.getLastFolder();
   if (lastFolder) {
     try {
